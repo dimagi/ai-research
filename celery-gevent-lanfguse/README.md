@@ -199,6 +199,38 @@ uv run celery -A bugrepro worker --pool=solo --loglevel=info
 uv run python manage.py test_bug --with-gevent --with-langfuse
 ```
 
+## Advanced Reproduction Tools
+
+For intermittent bugs, we provide specialized tools to increase reproduction likelihood. See **[REPRODUCING_THE_BUG.md](REPRODUCING_THE_BUG.md)** for detailed strategies.
+
+### Quick Reference
+
+**Test monkey patching order** (affects SSL context initialization):
+```bash
+uv run python test_monkey_patching.py --strategy early_aggressive
+uv run python test_monkey_patching.py --strategy late_aggressive
+```
+
+**Stress test connection pool** (expose race conditions):
+```bash
+uv run python test_connection_pool.py --cycles 200 --greenlets 30
+```
+
+**Inspect SSL context** (diagnostic tool):
+```bash
+uv run python inspect_ssl_context.py
+```
+
+**Run with early patching** (patch before all imports):
+```bash
+uv run python celery_worker_early_patch.py --pool=gevent --concurrency=20
+```
+
+**Long-running stress test**:
+```bash
+uv run python trigger_tasks.py --mode long --concurrency 30 --duration 300
+```
+
 ## Workarounds
 
 Potential workarounds to try:
