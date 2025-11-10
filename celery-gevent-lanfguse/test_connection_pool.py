@@ -41,7 +41,10 @@ def test_connection_cycling(iterations=100):
 
                 # Open new connection
                 with connection.cursor() as cursor:
-                    cursor.execute("SELECT pg_backend_pid(), ssl_is_used()")
+                    cursor.execute("""
+                        SELECT pg_backend_pid() as pid,
+                               (SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()) as ssl_used
+                    """)
                     pid, ssl_used = cursor.fetchone()
                     span.set_outputs({"pid": pid, "ssl": ssl_used})
 
@@ -79,10 +82,10 @@ def test_concurrent_connections(num_greenlets=20):
                 with connections['default'].cursor() as cursor:
                     cursor.execute("""
                         SELECT
-                            pg_backend_pid(),
-                            ssl_is_used(),
-                            current_database(),
-                            version()
+                            pg_backend_pid() as pid,
+                            (SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()) as ssl_used,
+                            current_database() as db,
+                            version() as version
                     """)
                     pid, ssl_used, db, version = cursor.fetchone()
                     span.set_outputs({
@@ -139,13 +142,13 @@ def test_mixed_operations(iterations=50):
 
                 with connection.cursor() as cursor:
                     if op_id % 2 == 0:
-                        # Complex query
+                        # Complex query with SSL info from pg_stat_ssl
                         cursor.execute("""
                             SELECT
-                                pg_backend_pid(),
-                                ssl_is_used(),
-                                ssl_version(),
-                                ssl_cipher()
+                                pg_backend_pid() as pid,
+                                (SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()) as ssl_used,
+                                (SELECT version FROM pg_stat_ssl WHERE pid = pg_backend_pid()) as ssl_version,
+                                (SELECT cipher FROM pg_stat_ssl WHERE pid = pg_backend_pid()) as ssl_cipher
                         """)
                     else:
                         # Simple query

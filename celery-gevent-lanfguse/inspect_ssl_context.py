@@ -106,33 +106,33 @@ def inspect_db_connection():
     print("\nAttempting database connection...")
     try:
         with connection.cursor() as cursor:
-            # Get SSL information from PostgreSQL
+            # Get basic connection information
             cursor.execute("""
                 SELECT
-                    ssl_is_used() as ssl_enabled,
                     version() as pg_version,
                     current_database() as database,
                     pg_backend_pid() as backend_pid
             """)
             row = cursor.fetchone()
             print(f"  ✓ Connection successful")
-            print(f"  SSL enabled: {row[0]}")
-            print(f"  PostgreSQL version: {row[1][:50]}...")
-            print(f"  Database: {row[2]}")
-            print(f"  Backend PID: {row[3]}")
+            print(f"  PostgreSQL version: {row[0][:50]}...")
+            print(f"  Database: {row[1]}")
+            print(f"  Backend PID: {row[2]}")
 
-            # Try to get SSL details
+            # Get SSL information from pg_stat_ssl table
             try:
                 cursor.execute("""
-                    SELECT
-                        ssl_version() as ssl_version,
-                        ssl_cipher() as ssl_cipher,
-                        ssl_client_dn() as client_dn
+                    SELECT ssl, version, cipher
+                    FROM pg_stat_ssl
+                    WHERE pid = pg_backend_pid()
                 """)
                 ssl_info = cursor.fetchone()
-                print(f"\n  SSL Version: {ssl_info[0]}")
-                print(f"  SSL Cipher: {ssl_info[1]}")
-                print(f"  SSL Client DN: {ssl_info[2] or 'None'}")
+                if ssl_info:
+                    print(f"\n  SSL enabled: {ssl_info[0]}")
+                    print(f"  SSL Version: {ssl_info[1] or 'N/A'}")
+                    print(f"  SSL Cipher: {ssl_info[2] or 'N/A'}")
+                else:
+                    print(f"\n  SSL information not available")
             except Exception as e:
                 print(f"\n  Could not retrieve SSL details: {e}")
 
@@ -159,18 +159,18 @@ def inspect_with_langfuse():
             with connection.cursor() as cursor:
                 cursor.execute("""
                     SELECT
-                        pg_backend_pid(),
-                        ssl_is_used(),
-                        ssl_version(),
-                        ssl_cipher()
+                        pg_backend_pid() as pid,
+                        (SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()) as ssl_used,
+                        (SELECT version FROM pg_stat_ssl WHERE pid = pg_backend_pid()) as ssl_ver,
+                        (SELECT cipher FROM pg_stat_ssl WHERE pid = pg_backend_pid()) as ssl_cipher
                 """)
                 pid, ssl_used, ssl_ver, ssl_cipher = cursor.fetchone()
 
                 print(f"  ✓ Connection with langfuse successful")
                 print(f"  Backend PID: {pid}")
                 print(f"  SSL Used: {ssl_used}")
-                print(f"  SSL Version: {ssl_ver}")
-                print(f"  SSL Cipher: {ssl_cipher}")
+                print(f"  SSL Version: {ssl_ver or 'N/A'}")
+                print(f"  SSL Cipher: {ssl_cipher or 'N/A'}")
 
                 span.set_outputs({
                     "pid": pid,
