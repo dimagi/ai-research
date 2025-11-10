@@ -1,0 +1,162 @@
+# Celery + Gevent + Langfuse (OpenTelemetry) Bug Reproduction
+
+This project reproduces a bug that occurs when using:
+- Django with PostgreSQL (SSL connection)
+- Celery with gevent pool
+- Langfuse (>3.0) which uses OpenTelemetry
+
+The bug affects SSL verification in psycopg3 connections when all three components are used together.
+
+## Issue Description
+
+When using Celery with the gevent pool and langfuse's OpenTelemetry instrumentation, SSL certificate verification for PostgreSQL connections may fail or behave incorrectly. This is likely due to the interaction between:
+
+1. **gevent's monkey patching** of the SSL module
+2. **OpenTelemetry's instrumentation** which modifies threading and context propagation
+3. **psycopg3's SSL verification** which depends on the SSL context being properly configured
+
+## Setup
+
+### Prerequisites
+
+- Python 3.11+
+- PostgreSQL with SSL enabled
+- Redis (for Celery broker)
+
+### Installation
+
+1. Create and activate virtual environment:
+```bash
+python3 -m venv venv
+source venv/bin/activate
+```
+
+2. Install dependencies:
+```bash
+pip install -r requirements.txt
+```
+
+3. Configure environment variables:
+```bash
+cp .env.example .env
+# Edit .env with your database and langfuse credentials
+```
+
+4. Run migrations:
+```bash
+python manage.py migrate
+```
+
+## Running the Reproduction
+
+### Terminal 1: Start Celery Worker with Gevent Pool
+
+```bash
+chmod +x run_celery_gevent.sh
+./run_celery_gevent.sh
+```
+
+Or manually:
+```bash
+source venv/bin/activate
+celery -A bugrepro worker --pool=gevent --concurrency=10 --loglevel=info
+```
+
+### Terminal 2: Trigger the Tasks
+
+```bash
+source venv/bin/activate
+python trigger_tasks.py
+```
+
+## Expected Behavior vs. Actual Behavior
+
+### Expected Behavior
+The Celery tasks should:
+1. Connect to PostgreSQL using SSL
+2. Execute database queries successfully
+3. Report telemetry to Langfuse via OpenTelemetry
+
+### Actual Behavior (Bug)
+One or more of the following may occur:
+- SSL certificate verification failures
+- Connection errors to PostgreSQL
+- Hangs or timeouts during database operations
+- Incorrect SSL context being used for connections
+
+## Components
+
+### Key Files
+
+- `bugrepro/settings.py` - Django settings with PostgreSQL SSL configuration
+- `bugrepro/celery.py` - Celery app configuration
+- `testapp/tasks.py` - Celery tasks with langfuse decorators
+- `run_celery_gevent.sh` - Script to run Celery with gevent pool
+- `trigger_tasks.py` - Script to trigger the tasks
+
+### Tasks
+
+1. **test_db_query**: Executes a raw SQL query using Django's connection cursor
+2. **test_db_query_with_model**: Uses Django ORM to query the database
+
+Both tasks are decorated with `@observe()` from langfuse, which activates OpenTelemetry instrumentation.
+
+## Debugging
+
+To help debug the issue, you can:
+
+1. Enable verbose logging in Celery:
+```bash
+celery -A bugrepro worker --pool=gevent --loglevel=debug
+```
+
+2. Check PostgreSQL logs for SSL-related errors
+
+3. Add debug logging to tasks:
+```python
+import logging
+logger = logging.getLogger(__name__)
+logger.debug("Connection info: %s", connection.settings_dict)
+```
+
+4. Test without gevent pool (for comparison):
+```bash
+celery -A bugrepro worker --pool=solo --loglevel=info
+```
+
+5. Test without langfuse decorators (remove `@observe()`)
+
+## Workarounds
+
+Potential workarounds to try:
+
+1. Use a different Celery pool (prefork, solo) instead of gevent
+2. Disable OpenTelemetry instrumentation for database connections
+3. Use psycopg2 instead of psycopg3
+4. Adjust gevent monkey patching order
+5. Configure SSL context manually before gevent patches
+
+## Dependencies
+
+- Django 4.2.x
+- Celery 5.3+
+- gevent 23.0+
+- psycopg 3.1+ (with binary)
+- langfuse 3.0+
+- PostgreSQL with SSL support
+
+## Related Issues
+
+This bug may be related to:
+- gevent's monkey patching of SSL module
+- OpenTelemetry's context propagation in async environments
+- psycopg3's SSL context handling
+- Thread-local storage in gevent greenlets
+
+## Contributing
+
+To help debug or fix this issue:
+1. Try different versions of the dependencies
+2. Add detailed logging at each layer
+3. Profile the SSL handshake process
+4. Compare behavior with/without each component

@@ -1,0 +1,44 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: bugrepro
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    command:
+      - "postgres"
+      - "-c"
+      - "ssl=on"
+      - "-c"
+      - "ssl_cert_file=/var/lib/postgresql/server.crt"
+      - "-c"
+      - "ssl_key_file=/var/lib/postgresql/server.key"
+    # Generate self-signed certificate on startup
+    entrypoint: >
+      sh -c "
+      if [ ! -f /var/lib/postgresql/server.key ]; then
+        openssl req -new -text -passout pass:abcd -subj /CN=localhost -out /tmp/server.req -keyout /tmp/privkey.pem &&
+        openssl rsa -in /tmp/privkey.pem -passin pass:abcd -out /var/lib/postgresql/server.key &&
+        openssl req -x509 -in /tmp/server.req -text -key /var/lib/postgresql/server.key -out /var/lib/postgresql/server.crt &&
+        chmod 600 /var/lib/postgresql/server.key &&
+        chown postgres:postgres /var/lib/postgresql/server.key /var/lib/postgresql/server.crt;
+      fi &&
+      docker-entrypoint.sh postgres -c ssl=on -c ssl_cert_file=/var/lib/postgresql/server.crt -c ssl_key_file=/var/lib/postgresql/server.key
+      "
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+volumes:
+  postgres_data:
+  redis_data:
