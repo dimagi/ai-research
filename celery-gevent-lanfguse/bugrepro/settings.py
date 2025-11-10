@@ -142,3 +142,14 @@ CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_TIMEZONE = "UTC"
+
+public_keys = [k.strip() for k in os.getenv("LANGFUSE_PUBLIC_KEYS").split(",") if k.strip()]
+secret_keys = [k.strip() for k in os.getenv("LANGFUSE_SECRET_KEYS").split(",") if k.strip()]
+LANGFUSE_ACCOUNTS = [
+    {
+        "public_key": key,
+        "secret_key": secret,
+        "host": os.getenv("LANGFUSE_HOST")
+    }
+    for key, secret in zip(public_keys, secret_keys)
+]

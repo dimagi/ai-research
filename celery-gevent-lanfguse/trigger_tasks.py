@@ -25,7 +25,6 @@ django.setup()
 from testapp.tasks import (
     test_db_query,
     test_db_query_with_model,
-    test_internal_observe,
     test_http_with_db_logging,
     test_multiple_http_requests,
     test_mixed_operations,
@@ -47,11 +46,6 @@ def run_simple_tests():
     result2 = test_db_query_with_model.delay()
     tasks.append(('test_db_query_with_model', result2))
     print(f"✓ Task submitted: test_db_query_with_model ({result2.id})")
-
-    # Test 3: Internal observe
-    result3 = test_internal_observe.delay()
-    tasks.append(('test_internal_observe', result3))
-    print(f"✓ Task submitted: test_internal_observe ({result3.id})")
 
     print("\n--- Waiting for results ---\n")
 
@@ -169,8 +163,8 @@ def run_stress_test(concurrency=20, http_tasks=10):
             result = test_db_query.delay()
             task_name = f"db_query-{i}"
         elif i % 4 == 1:
-            result = test_internal_observe.delay()
-            task_name = f"internal_observe-{i}"
+            result = test_multiple_http_requests.delay()
+            task_name = f"test_multiple_http_requests-{i}"
         elif i % 4 == 2:
             result = test_db_query_with_model.delay()
             task_name = f"db_model-{i}"

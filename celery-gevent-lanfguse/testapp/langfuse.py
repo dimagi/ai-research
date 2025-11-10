@@ -3,20 +3,20 @@ from __future__ import annotations
 import atexit
 import dataclasses
 import logging
+import random
 import threading
 import time
+import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
+from django.conf import settings
+
 from langfuse._client.get_client import _create_client_from_instance
 from langfuse._client.resource_manager import LangfuseResourceManager
-from langfuse.langchain import CallbackHandler
 
-from . import Tracer
-from .base import ServiceNotInitializedException, ServiceReentryException, TraceContext
-from .const import SpanLevel
 
 if TYPE_CHECKING:
     from langchain.callbacks.base import BaseCallbackHandler
@@ -60,8 +60,8 @@ class LangFuseTracer:
     different credentials per call. This is why we don't use the standard 'observe' decorator.
     """
 
-    def __init__(self, type_, config: dict):
-        super().__init__(type_, config)
+    def __init__(self, config: dict):
+        self.config = config
         self.client = None
         self.trace_record = None
 
@@ -72,7 +72,7 @@ class LangFuseTracer:
     @contextmanager
     def trace(
         self,
-        trace_context: TraceContext,
+        name: str,
         inputs: dict[str, Any] | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> Iterator[TraceContext]:
@@ -85,6 +85,7 @@ class LangFuseTracer:
         if self.trace_record:
             raise ServiceReentryException("Service does not support reentrant use.")
 
+        trace_context = TraceContext(id=uuid.uuid4(), name=name)
         # Get client and create trace
         self.client = client_manager.get(self.config)
         try:
@@ -112,15 +113,15 @@ class LangFuseTracer:
     @contextmanager
     def span(
         self,
-        span_context: TraceContext,
-        inputs: dict[str, Any],
+        name: str,
+        inputs: dict[str, Any] | None = None,
         metadata: dict[str, Any] | None = None,
-        level: SpanLevel = "DEFAULT",
     ) -> Iterator[TraceContext]:
         """Context manager for Langfuse span lifecycle.
 
         Creates a nested span under the current observation (last span or root trace).
         """
+        span_context = TraceContext(id=uuid.uuid4(), name=name)
         if not self.ready:
             yield span_context
             return
@@ -129,41 +130,10 @@ class LangFuseTracer:
             name=span_context.name,
             input=inputs,
             metadata=metadata,
-            level=level,
         ) as span:
             yield span_context
             if output := span_context.outputs:
                 span.update(output=output.copy())
-
-    def get_langchain_callback(self) -> BaseCallbackHandler | None:
-        if not self.ready:
-            raise ServiceReentryException("Service does not support reentrant use.")
-
-        if self.config and self.config.get("public_key"):
-            public_key = self.config.get("public_key")
-            return LangfuseCallbackHandler(public_key=public_key)
-        return None
-
-    def get_trace_metadata(self) -> dict[str, str]:
-        if not self.ready:
-            raise ServiceNotInitializedException("Service not initialized.")
-
-        return {
-            "trace_id": self.trace_record.trace_id,
-            "trace_url": self.client.get_trace_url(trace_id=self.trace_record.trace_id),
-            "trace_provider": self.type,
-        }
-
-    def add_trace_tags(self, tags: list[str]) -> None:
-        if not self.ready:
-            raise ServiceNotInitializedException("Service not initialized.")
-        self.trace_record.update(tags=tags)
-
-    def set_output_message_id(self, output_message_id: str) -> None:
-        pass
-
-    def set_input_message_id(self, input_message_id: str) -> None:
-        pass
 
 
 class ClientManager:
@@ -244,19 +214,7 @@ def _shutdown():
     client_manager.shutdown()
 
 
-class LangfuseCallbackHandler(CallbackHandler):
-    """Langfuse callback handler for LangChain that supports custom events"""
-
-    def on_custom_event(
-        self,
-        name: str,
-        data: Any,
-        *,
-        run_id: UUID,
-        tags: list[str] | None = None,
-        metadata: dict[str, Any] | None = None,
-        **kwargs: Any,
-    ) -> Any:
-        if span := self._get_parent_observation(run_id):
-            span.create_event(name=name, input=data, metadata=metadata)
-        return None
+def get_random_langfuse_account():
+    account_config = random.choice(settings.LANGFUSE_ACCOUNTS)
+    print("using account: ", account_config["public_key"])
+    return LangFuseTracer(account_config)
