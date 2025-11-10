@@ -38,7 +38,7 @@ def test_with_langfuse_decorator():
     """Test 2: Direct DB connection with langfuse decorator"""
     print("\n=== Test 2: DB Connection with Langfuse Decorator ===")
     try:
-        from langfuse.decorators import observe
+        from langfuse import observe
 
         @observe()
         def query_with_langfuse():
@@ -87,7 +87,7 @@ def test_gevent_with_langfuse():
     print("\n=== Test 4: Gevent + Langfuse (Bug Scenario) ===")
     try:
         from gevent import monkey
-        from langfuse.decorators import observe
+        from langfuse import observe
 
         # Ensure gevent is patched
         if not monkey.is_module_patched('socket'):
@@ -123,14 +123,14 @@ def print_environment_info():
     import psycopg
     import celery
     import gevent
-    import langfuse
+    import langfuse.version
 
     print(f"Python: {sys.version}")
     print(f"Django: {django.get_version()}")
     print(f"psycopg: {psycopg.__version__}")
     print(f"Celery: {celery.__version__}")
     print(f"gevent: {gevent.__version__}")
-    print(f"langfuse: {langfuse.__version__}")
+    print(f"langfuse: {langfuse.version.__version__}")
 
     # Database settings
     db_settings = connection.settings_dict

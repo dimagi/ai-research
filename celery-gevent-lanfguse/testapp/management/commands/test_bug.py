@@ -47,7 +47,7 @@ class Command(BaseCommand):
         # Wrap with langfuse if requested
         if use_langfuse:
             try:
-                from langfuse.decorators import observe
+                from langfuse import observe
                 test_query = observe()(test_query)
                 self.stdout.write('Applied langfuse decorator')
             except ImportError:

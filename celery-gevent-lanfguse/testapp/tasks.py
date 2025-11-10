@@ -1,6 +1,6 @@
 from celery import shared_task
 from django.db import connection
-from langfuse.decorators import observe
+from langfuse import observe
 
 
 @shared_task
