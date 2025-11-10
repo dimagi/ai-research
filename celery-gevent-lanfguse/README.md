@@ -22,18 +22,32 @@ When using Celery with the gevent pool and langfuse's OpenTelemetry instrumentat
 - Python 3.11+
 - PostgreSQL with SSL enabled
 - Redis (for Celery broker)
+- [uv](https://docs.astral.sh/uv/) - Fast Python package installer (optional but recommended)
 
 ### Installation
 
-1. Create and activate virtual environment:
+#### Quick Setup (Automated)
+
 ```bash
-python3 -m venv venv
-source venv/bin/activate
+./setup.sh
+```
+
+This will:
+- Install uv if not present
+- Create virtual environment and install dependencies
+- Start PostgreSQL and Redis with Docker
+- Run Django migrations
+
+#### Manual Setup
+
+1. Install uv (if not already installed):
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
 2. Install dependencies:
 ```bash
-pip install -r requirements.txt
+uv sync
 ```
 
 3. Configure environment variables:
@@ -42,8 +56,24 @@ cp .env.example .env
 # Edit .env with your database and langfuse credentials
 ```
 
-4. Run migrations:
+4. Start services:
 ```bash
+docker-compose up -d
+```
+
+5. Run migrations:
+```bash
+uv run python manage.py migrate
+```
+
+#### Alternative: Traditional pip Setup
+
+If you prefer not to use uv:
+
+```bash
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
 python manage.py migrate
 ```
 
@@ -52,21 +82,29 @@ python manage.py migrate
 ### Terminal 1: Start Celery Worker with Gevent Pool
 
 ```bash
-chmod +x run_celery_gevent.sh
 ./run_celery_gevent.sh
 ```
 
-Or manually:
+Or manually with uv:
 ```bash
-source venv/bin/activate
+uv run celery -A bugrepro worker --pool=gevent --concurrency=10 --loglevel=info
+```
+
+Or with traditional activation:
+```bash
+source .venv/bin/activate  # uv creates .venv by default
 celery -A bugrepro worker --pool=gevent --concurrency=10 --loglevel=info
 ```
 
 ### Terminal 2: Trigger the Tasks
 
 ```bash
-source venv/bin/activate
-python trigger_tasks.py
+uv run python trigger_tasks.py
+```
+
+Or run the standalone test script:
+```bash
+uv run python reproduce_bug.py
 ```
 
 ## Expected Behavior vs. Actual Behavior
@@ -107,7 +145,7 @@ To help debug the issue, you can:
 
 1. Enable verbose logging in Celery:
 ```bash
-celery -A bugrepro worker --pool=gevent --loglevel=debug
+uv run celery -A bugrepro worker --pool=gevent --loglevel=debug
 ```
 
 2. Check PostgreSQL logs for SSL-related errors
@@ -121,10 +159,15 @@ logger.debug("Connection info: %s", connection.settings_dict)
 
 4. Test without gevent pool (for comparison):
 ```bash
-celery -A bugrepro worker --pool=solo --loglevel=info
+uv run celery -A bugrepro worker --pool=solo --loglevel=info
 ```
 
 5. Test without langfuse decorators (remove `@observe()`)
+
+6. Use Django management command for isolated testing:
+```bash
+uv run python manage.py test_bug --with-gevent --with-langfuse
+```
 
 ## Workarounds
 
@@ -144,6 +187,10 @@ Potential workarounds to try:
 - psycopg 3.1+ (with binary)
 - langfuse 3.0+
 - PostgreSQL with SSL support
+
+Dependencies are managed via `pyproject.toml` and can be installed with:
+- **uv** (recommended) - ~10-100x faster than pip
+- **pip** - traditional package manager (requirements.txt included for compatibility)
 
 ## Related Issues
 

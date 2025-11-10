@@ -7,20 +7,16 @@ echo "Bug Reproduction Setup"
 echo "================================"
 echo ""
 
-# Check if virtual environment exists
-if [ ! -d "venv" ]; then
-    echo "Creating virtual environment..."
-    python3 -m venv venv
+# Check if uv is installed
+if ! command -v uv &> /dev/null; then
+    echo "uv not found. Installing uv..."
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    export PATH="$HOME/.cargo/bin:$PATH"
 fi
 
-# Activate virtual environment
-echo "Activating virtual environment..."
-source venv/bin/activate
-
-# Install dependencies
-echo "Installing dependencies..."
-pip install --upgrade pip
-pip install -r requirements.txt
+# Create virtual environment and install dependencies with uv
+echo "Setting up virtual environment and installing dependencies with uv..."
+uv sync
 
 # Check if .env exists
 if [ ! -f ".env" ]; then
@@ -41,7 +37,7 @@ sleep 5
 
 # Run migrations
 echo "Running Django migrations..."
-python manage.py migrate
+uv run python manage.py migrate
 
 echo ""
 echo "================================"
@@ -51,8 +47,8 @@ echo ""
 echo "Next steps:"
 echo "1. Edit .env file with your langfuse credentials (if needed)"
 echo "2. Start Celery worker: ./run_celery_gevent.sh"
-echo "3. In another terminal, run: python trigger_tasks.py"
-echo "   OR run the standalone test: python reproduce_bug.py"
+echo "3. In another terminal, run: uv run python trigger_tasks.py"
+echo "   OR run the standalone test: uv run python reproduce_bug.py"
 echo ""
 echo "To stop services: docker-compose down"
 echo ""
