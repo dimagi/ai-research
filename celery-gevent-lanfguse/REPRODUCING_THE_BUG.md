@@ -21,19 +21,21 @@ The bug is likely related to **interference between gevent's monkey patching and
 
 ### 1. Monkey Patching Experiments
 
-Test different monkey patching strategies to identify which module interactions cause the bug:
+Test different monkey patching strategies to identify which module interactions cause the bug.
+
+**Each strategy runs in a separate Python process** to avoid interference from previous monkey patches.
 
 ```bash
-# Test all strategies (requires separate runs)
-uv run python test_monkey_patching.py --strategy early_aggressive
-uv run python test_monkey_patching.py --strategy early_minimal
-uv run python test_monkey_patching.py --strategy late_aggressive
-uv run python test_monkey_patching.py --strategy late_minimal
-uv run python test_monkey_patching.py --strategy ssl_only
-uv run python test_monkey_patching.py --strategy no_ssl
+# Test all strategies automatically (each in separate process)
+uv run python test_monkey_patching.py
 
-# Test with more attempts
+# Or test specific strategy only
+uv run python test_monkey_patching.py --strategy early_aggressive
+uv run python test_monkey_patching.py --strategy late_aggressive
+
+# Test with more attempts per strategy
 uv run python test_monkey_patching.py --strategy early_aggressive --attempts 100
+uv run python test_monkey_patching.py --attempts 50  # All strategies, 50 attempts each
 ```
 
 **Strategies**:
@@ -43,6 +45,8 @@ uv run python test_monkey_patching.py --strategy early_aggressive --attempts 100
 - `late_minimal`: Import Django/OTEL first, then patch socket/SSL only
 - `ssl_only`: Patch only the SSL module
 - `no_ssl`: Patch everything except SSL
+
+When running with `--strategy all` (default), the script spawns a subprocess for each strategy to ensure complete isolation.
 
 ### 2. Connection Pool Stress Testing
 
@@ -115,13 +119,15 @@ uv run python trigger_tasks.py --mode long --concurrency 50 --duration 600
 
 ### Phase 1: Identify Trigger Conditions
 
-1. **Test monkey patching order**:
+1. **Test monkey patching order** (all strategies in separate processes):
    ```bash
-   for strategy in early_aggressive late_aggressive ssl_only no_ssl; do
-       echo "Testing $strategy..."
-       uv run python test_monkey_patching.py --strategy $strategy --attempts 50
-       sleep 2
-   done
+   uv run python test_monkey_patching.py --attempts 50
+   ```
+
+   Or test specific strategies:
+   ```bash
+   uv run python test_monkey_patching.py --strategy early_aggressive --attempts 50
+   uv run python test_monkey_patching.py --strategy late_aggressive --attempts 50
    ```
 
 2. **Stress connection pool**:

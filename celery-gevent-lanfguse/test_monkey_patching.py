@@ -4,6 +4,8 @@ Experiment with different gevent monkey patching configurations.
 
 This script tests various patching orders and module combinations to help
 identify the specific interaction that causes SSL verification issues.
+
+Each strategy runs in a separate process to avoid interference.
 """
 
 import sys
@@ -159,17 +161,78 @@ def test_db_connection(num_attempts=10):
     return error_count == 0
 
 
+def run_single_strategy(strategy_name, num_attempts):
+    """Run a single strategy test (called from subprocess)."""
+    apply_patching(strategy_name)
+    success = test_db_connection(num_attempts)
+    return 0 if success else 1
+
+
+def run_all_strategies(num_attempts):
+    """Run all strategies in separate processes."""
+    import subprocess
+
+    print("\n" + "="*70)
+    print("RUNNING ALL PATCHING STRATEGIES IN SEPARATE PROCESSES")
+    print("="*70)
+    print("\nThis ensures each strategy runs in a clean Python environment")
+    print("without interference from previous monkey patching.\n")
+
+    results = {}
+
+    for strategy_name in PATCHING_STRATEGIES.keys():
+        print(f"\n{'='*70}")
+        print(f"Starting subprocess for strategy: {strategy_name}")
+        print(f"{'='*70}\n")
+
+        # Run this script in a subprocess with --internal-run flag
+        cmd = [
+            sys.executable,
+            __file__,
+            '--internal-run',
+            '--strategy', strategy_name,
+            '--attempts', str(num_attempts)
+        ]
+
+        result = subprocess.run(cmd, capture_output=False, text=True)
+        results[strategy_name] = (result.returncode == 0)
+
+        print(f"\n{'='*70}")
+        if result.returncode == 0:
+            print(f"✓ Strategy '{strategy_name}' PASSED")
+        else:
+            print(f"✗ Strategy '{strategy_name}' FAILED (exit code: {result.returncode})")
+        print(f"{'='*70}\n")
+
+    # Final summary
+    print("\n" + "="*70)
+    print("FINAL SUMMARY - ALL STRATEGIES")
+    print("="*70)
+    for strategy, success in results.items():
+        status = "✓ PASSED" if success else "✗ FAILED"
+        print(f"{strategy:20} {status}")
+    print("="*70 + "\n")
+
+    if all(results.values()):
+        print("✓ All strategies passed!")
+        return 0
+    else:
+        failed = [s for s, success in results.items() if not success]
+        print(f"⚠️  {len(failed)} strateg{'y' if len(failed) == 1 else 'ies'} failed: {', '.join(failed)}")
+        return 1
+
+
 def main():
     import argparse
 
     parser = argparse.ArgumentParser(
-        description='Test different gevent monkey patching strategies'
+        description='Test different gevent monkey patching strategies in isolated processes'
     )
     parser.add_argument(
         '--strategy',
         choices=list(PATCHING_STRATEGIES.keys()) + ['all'],
         default='all',
-        help='Patching strategy to test (default: all)'
+        help='Patching strategy to test (default: all, runs each in separate process)'
     )
     parser.add_argument(
         '--attempts',
@@ -177,44 +240,27 @@ def main():
         default=10,
         help='Number of connection attempts per strategy (default: 10)'
     )
+    parser.add_argument(
+        '--internal-run',
+        action='store_true',
+        help='Internal flag: run single strategy (called from subprocess)'
+    )
 
     args = parser.parse_args()
 
-    strategies = [args.strategy] if args.strategy != 'all' else list(PATCHING_STRATEGIES.keys())
+    # Internal run mode: execute single strategy and exit
+    if args.internal_run:
+        if args.strategy == 'all':
+            print("Error: --internal-run requires specific strategy", file=sys.stderr)
+            return 1
+        return run_single_strategy(args.strategy, args.attempts)
 
-    results = {}
-
-    for strategy in strategies:
-        # Each strategy needs a fresh process, so we document this
-        if len(strategies) > 1 and strategy != strategies[0]:
-            print("\n" + "!"*60)
-            print("NOTE: Testing multiple strategies requires separate runs")
-            print("      due to the persistent nature of monkey patching.")
-            print("      Please run this script multiple times with --strategy")
-            print("!"*60 + "\n")
-            print(f"To test '{strategy}', run:")
-            print(f"  uv run python test_monkey_patching.py --strategy {strategy}")
-            print()
-            continue
-
-        apply_patching(strategy)
-        success = test_db_connection(args.attempts)
-        results[strategy] = success
-
-        # Can only test one strategy per process
-        break
-
-    # Summary
-    if results:
-        print("\n" + "="*60)
-        print("SUMMARY")
-        print("="*60)
-        for strategy, success in results.items():
-            status = "✓ SUCCESS" if success else "✗ FAILED"
-            print(f"{strategy:20} {status}")
-        print("="*60 + "\n")
-
-    return 0 if all(results.values()) else 1
+    # Normal mode: either run all strategies in subprocesses or single strategy
+    if args.strategy == 'all':
+        return run_all_strategies(args.attempts)
+    else:
+        # Single strategy requested - run directly (no subprocess needed)
+        return run_single_strategy(args.strategy, args.attempts)
 
 
 if __name__ == '__main__':
