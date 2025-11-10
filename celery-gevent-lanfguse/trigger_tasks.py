@@ -11,6 +11,8 @@ Run with higher concurrency to stress test:
 """
 
 import argparse
+import random
+
 import django
 import os
 import sys
@@ -226,13 +228,108 @@ def run_stress_test(concurrency=20, http_tasks=10):
         return 0
 
 
+def run_long_test(concurrency=10, duration=60):
+    """
+    Run a stress test with high concurrency to increase likelihood of bug.
+
+    This spawns many tasks simultaneously to stress the gevent pool
+    and increase the chance of triggering SSL verification issues.
+    """
+    print(f"\n{'='*60}")
+    print(f"=== LONG TEST (concurrency={concurrency}, duration={duration}) ===")
+    print(f"{'='*60}\n")
+
+    tasks = []
+    start_time = time.time()
+
+    # Spawn many tasks quickly to stress the system
+    print("Spawning tasks...")
+    for i in range(concurrency):
+        result, task_name = _span_task(i)
+        tasks.append((task_name, result))
+
+    print(f"✓ Spawned {len(tasks)} tasks in {time.time() - start_time:.2f}s")
+
+    # Wait for all results
+    print("\nWaiting for all tasks to complete...")
+
+    total_count = 0
+    success_count = 0
+    error_count = 0
+    timeout_count = 0
+    request_timeout_count = 0
+
+    while tasks:
+        name, result = tasks.pop(0)
+        try:
+            result.get(timeout=120)
+            success_count += 1
+            print(".", end="", flush=True)
+        except TimeoutError:
+            timeout_count += 1
+            print("t", end="", flush=True)
+        except ReadTimeout:
+            request_timeout_count += 1
+            print("T", end="", flush=True)
+        except Exception:
+            error_count += 1
+            print("X", end="", flush=True)
+        finally:
+            total_count += 1
+
+        elapsed = time.time() - start_time
+        if elapsed < duration:
+            new = concurrency - len(tasks)
+            for i in range(new):
+                result, task_name = _span_task(random.randint(i, 100))
+                print("+", end="", flush=True)
+                tasks.append((task_name, result))
+
+    elapsed = time.time() - start_time
+
+    print(f"\n\n{'='*60}")
+    print("STRESS TEST RESULTS")
+    print(f"{'='*60}")
+    print(f"Total tasks:         {total_count}")
+    print(f"✓ Succeeded:         {success_count}")
+    print(f"✗ Failed:            {error_count}")
+    print(f"t Timeout:           {timeout_count}")
+    print(f"T Requests Timeout:  {request_timeout_count}")
+    print(f"Time elapsed:        {elapsed:.2f}s")
+    print(f"Success rate:        {success_count/total_count*100:.1f}%")
+    print(f"{'='*60}\n")
+
+    if error_count > 0 or timeout_count > 0:
+        print("⚠️  Some tasks failed or timed out - bug may be present!")
+        return 1
+    else:
+        print("✓ All tasks completed successfully")
+        return 0
+
+
+def _span_task(i):
+    if i % 4 == 0:
+        result = test_db_query.delay()
+        task_name = f"db_query-{i}"
+    elif i % 4 == 1:
+        result = test_multiple_http_requests.delay()
+        task_name = f"test_multiple_http_requests-{i}"
+    elif i % 4 == 2:
+        result = test_db_query_with_model.delay()
+        task_name = f"db_model-{i}"
+    else:
+        result = test_mixed_operations.delay()
+        task_name = f"mixed_ops-{i}"
+    return result, task_name
+
+
 def main():
     parser = argparse.ArgumentParser(
         description='Trigger Celery tasks to reproduce the gevent + langfuse + psycopg3 bug'
     )
     parser.add_argument(
         '--mode',
-        choices=['simple', 'http', 'multiple', 'mixed', 'stress', 'all'],
+        choices=['simple', 'http', 'multiple', 'mixed', 'stress', 'long', 'all'],
         default='all',
         help='Test mode to run (default: all)'
     )
@@ -254,6 +351,12 @@ def main():
         default=1,
         help='Delay in seconds for HTTP requests (default: 1)'
     )
+    parser.add_argument(
+        '--duration',
+        type=int,
+        default=60,
+        help='Duration to run the "long" test for (seconds)'
+    )
 
     args = parser.parse_args()
 
@@ -274,6 +377,12 @@ def main():
             return run_stress_test(
                 concurrency=args.concurrency,
                 http_tasks=args.http_tasks
+            )
+
+        if args.mode == 'long':
+            return run_long_test(
+                concurrency=args.concurrency,
+                duration=60
             )
 
         return 0
