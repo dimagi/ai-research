@@ -16,6 +16,8 @@ import os
 import sys
 import time
 
+from requests import ReadTimeout
+
 # Setup Django
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'bugrepro.settings')
 django.setup()
@@ -191,6 +193,7 @@ def run_stress_test(concurrency=20, http_tasks=10):
     success_count = 0
     error_count = 0
     timeout_count = 0
+    request_timeout_count = 0
 
     for name, result in tasks:
         try:
@@ -199,8 +202,11 @@ def run_stress_test(concurrency=20, http_tasks=10):
             print(".", end="", flush=True)
         except TimeoutError:
             timeout_count += 1
+            print("t", end="", flush=True)
+        except ReadTimeout:
+            request_timeout_count += 1
             print("T", end="", flush=True)
-        except Exception as e:
+        except Exception:
             error_count += 1
             print("X", end="", flush=True)
 
@@ -209,12 +215,13 @@ def run_stress_test(concurrency=20, http_tasks=10):
     print(f"\n\n{'='*60}")
     print("STRESS TEST RESULTS")
     print(f"{'='*60}")
-    print(f"Total tasks:     {len(tasks)}")
-    print(f"✓ Succeeded:     {success_count}")
-    print(f"✗ Failed:        {error_count}")
-    print(f"T Timeout:       {timeout_count}")
-    print(f"Time elapsed:    {elapsed:.2f}s")
-    print(f"Success rate:    {success_count/len(tasks)*100:.1f}%")
+    print(f"Total tasks:         {len(tasks)}")
+    print(f"✓ Succeeded:         {success_count}")
+    print(f"✗ Failed:            {error_count}")
+    print(f"t Timeout:           {timeout_count}")
+    print(f"T Requests Timeout:  {request_timeout_count}")
+    print(f"Time elapsed:        {elapsed:.2f}s")
+    print(f"Success rate:        {success_count/len(tasks)*100:.1f}%")
     print(f"{'='*60}\n")
 
     if error_count > 0 or timeout_count > 0:
