@@ -120,45 +120,69 @@ def apply_patching(strategy_name):
 
 
 def test_db_connection(num_attempts=10):
-    """Test database connections with the current patching strategy."""
-    from django.db import connection
+    """Test database connections with concurrent greenlets."""
+    import gevent
+    from django.db import connection, connections
     from testapp.langfuse import get_random_langfuse_account
-    import time
 
-    print(f"Testing {num_attempts} database connections with langfuse tracing...\n")
+    print(f"Testing with {num_attempts} concurrent greenlets...\n")
 
-    success_count = 0
-    error_count = 0
+    success_count = [0]
+    error_count = [0]
+    errors = []
 
-    for i in range(num_attempts):
+    def db_operation(greenlet_id):
+        """Run a database operation in a greenlet."""
         try:
             tracer = get_random_langfuse_account()
-            with tracer.trace(f"test_connection_{i}") as span:
-                # Force new connection
-                connection.close()
+            with tracer.trace(f"greenlet_{greenlet_id}") as span:
+                # Force new connection on some operations
+                if greenlet_id % 3 == 0:
+                    connection.close()
 
                 with connection.cursor() as cursor:
-                    cursor.execute("SELECT version(), pg_backend_pid()")
-                    version, pid = cursor.fetchone()
-                    span.set_outputs({"backend_pid": pid})
+                    # Mix simple and complex queries
+                    if greenlet_id % 2 == 0:
+                        cursor.execute("""
+                            SELECT pg_backend_pid() as pid,
+                                   (SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()) as ssl_used,
+                                   current_database() as db
+                        """)
+                        pid, ssl_used, db = cursor.fetchone()
+                        print(f"  Greenlet {greenlet_id}: ✓ PID={pid}, SSL={ssl_used}")
+                    else:
+                        cursor.execute("SELECT pg_backend_pid()")
+                        pid = cursor.fetchone()[0]
+                        print(f"  Greenlet {greenlet_id}: ✓ PID={pid}")
 
-                print(f"  {i+1}. ✓ Connection successful (PID: {pid})")
-                success_count += 1
+                    span.set_outputs({"backend_pid": pid, "greenlet": greenlet_id})
 
-            # Small delay to allow context switching
-            time.sleep(0.01)
+                success_count[0] += 1
+
+                # Force context switch
+                gevent.sleep(0)
 
         except Exception as e:
-            print(f"  {i+1}. ✗ Connection failed: {e}")
-            error_count += 1
-            import traceback
-            traceback.print_exc()
+            print(f"  Greenlet {greenlet_id}: ✗ Error: {e}")
+            error_count[0] += 1
+            errors.append((greenlet_id, str(e)))
+
+    # Spawn all greenlets at once for maximum concurrency
+    print(f"Spawning {num_attempts} greenlets concurrently...")
+    greenlets = [gevent.spawn(db_operation, i) for i in range(num_attempts)]
+
+    # Wait for all to complete with timeout
+    gevent.joinall(greenlets, timeout=30)
 
     print(f"\n{'='*60}")
-    print(f"Results: {success_count}/{num_attempts} successful, {error_count} failed")
+    print(f"Results: {success_count[0]}/{num_attempts} successful, {error_count[0]} failed")
+    if errors:
+        print(f"\nFirst 5 errors:")
+        for gid, err in errors[:5]:
+            print(f"  Greenlet {gid}: {err}")
     print(f"{'='*60}\n")
 
-    return error_count == 0
+    return error_count[0] == 0
 
 
 def run_single_strategy(strategy_name, num_attempts):
@@ -237,8 +261,8 @@ def main():
     parser.add_argument(
         '--attempts',
         type=int,
-        default=10,
-        help='Number of connection attempts per strategy (default: 10)'
+        default=50,
+        help='Number of concurrent greenlets per strategy (default: 50)'
     )
     parser.add_argument(
         '--internal-run',

@@ -115,11 +115,45 @@ uv run python trigger_tasks.py --mode long --concurrency 20 --duration 300
 uv run python trigger_tasks.py --mode long --concurrency 50 --duration 600
 ```
 
+### 6. LangGraph Threading + Gevent Test ⚠️ CRITICAL
+
+**This test is specifically designed to reproduce thread interference issues**, as langgraph uses real threads internally which can conflict with gevent's monkey patching:
+
+```bash
+# Run all tests
+uv run python test_langgraph_gevent.py
+
+# Test with more greenlets and rounds
+uv run python test_langgraph_gevent.py --greenlets 50 --rounds 5
+
+# Test only concurrent workflows (most aggressive)
+uv run python test_langgraph_gevent.py --test concurrent --greenlets 30
+```
+
+**Why this is critical:**
+- Langgraph uses **real OS threads** internally for workflow execution
+- Gevent's monkey patching modifies thread-related modules
+- **SSL context is stored in thread-local storage**
+- When greenlets switch during thread execution, SSL context can be accessed from wrong thread
+- This creates the exact race condition that causes SSL verification failures
+
+**Tests:**
+- `basic`: Multiple rounds of concurrent greenlets running langgraph workflows
+- `concurrent`: Maximum stress with rapid context switches during workflow execution
+- `all`: Both tests (default)
+
+This test is the most likely to reproduce the bug if thread interaction is the root cause.
+
 ## Recommended Reproduction Strategy
 
 ### Phase 1: Identify Trigger Conditions
 
-1. **Test monkey patching order** (all strategies in separate processes):
+1. **⚠️ PRIORITY: Test LangGraph + Gevent thread interference** (most likely to reproduce):
+   ```bash
+   uv run python test_langgraph_gevent.py --greenlets 50 --rounds 5
+   ```
+
+2. **Test monkey patching order** (all strategies with concurrent greenlets):
    ```bash
    uv run python test_monkey_patching.py --attempts 50
    ```
@@ -130,12 +164,12 @@ uv run python trigger_tasks.py --mode long --concurrency 50 --duration 600
    uv run python test_monkey_patching.py --strategy late_aggressive --attempts 50
    ```
 
-2. **Stress connection pool**:
+3. **Stress connection pool**:
    ```bash
    uv run python test_connection_pool.py --cycles 200 --greenlets 30
    ```
 
-3. **Run diagnostic**:
+4. **Run diagnostic**:
    ```bash
    uv run python inspect_ssl_context.py
    ```
