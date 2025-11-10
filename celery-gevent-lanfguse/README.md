@@ -98,9 +98,28 @@ celery -A bugrepro worker --pool=gevent --concurrency=10 --loglevel=info
 
 ### Terminal 2: Trigger the Tasks
 
+The `trigger_tasks.py` script supports multiple test modes:
+
 ```bash
+# Run all tests (simple, http, multiple, mixed, stress)
 uv run python trigger_tasks.py
+
+# Run only specific test mode
+uv run python trigger_tasks.py --mode simple
+uv run python trigger_tasks.py --mode http
+uv run python trigger_tasks.py --mode stress
+
+# Customize stress test parameters
+uv run python trigger_tasks.py --mode stress --concurrency 50 --http-tasks 20
 ```
+
+Available modes:
+- **simple**: Basic database tasks (3 tasks)
+- **http**: HTTP requests with database logging (5 tasks)
+- **multiple**: Multiple HTTP requests per task (3 tasks, 3 requests each)
+- **mixed**: Combined DB + HTTP + model operations (5 tasks)
+- **stress**: High concurrency test (default: 20 concurrent + 10 HTTP tasks)
+- **all**: Run all test modes (default)
 
 Or run the standalone test script:
 ```bash
@@ -134,10 +153,21 @@ One or more of the following may occur:
 
 ### Tasks
 
-1. **test_db_query**: Executes a raw SQL query using Django's connection cursor
-2. **test_db_query_with_model**: Uses Django ORM to query the database
+The project includes several tasks designed to reproduce the bug under different conditions:
 
-Both tasks are decorated with `@observe()` from langfuse, which activates OpenTelemetry instrumentation.
+1. **test_db_query**: Executes a raw SQL query using Django's connection cursor. Decorated with `@observe()` from langfuse.
+
+2. **test_db_query_with_model**: Uses Django ORM to query the database. Decorated with `@observe()`.
+
+3. **test_internal_observe**: Uses `@observe()` decorator internally within the task instead of on the task function. Tests whether decorator placement affects the bug.
+
+4. **test_http_with_db_logging**: Makes HTTP requests to httpbin.org and logs each request to the database. Combines HTTP I/O, database writes, and OpenTelemetry tracing. This task is most likely to trigger the bug.
+
+5. **test_multiple_http_requests**: Makes multiple HTTP requests per task, with each request wrapped in an internal `@observe()` decorator. Logs all requests to the database.
+
+6. **test_mixed_operations**: Combines database queries (raw SQL), HTTP requests, and ORM operations in a single task. The most comprehensive test case.
+
+All tasks that interact with the database will potentially trigger SSL verification issues when run with gevent pool and langfuse instrumentation.
 
 ## Debugging
 

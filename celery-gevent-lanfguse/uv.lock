@@ -117,6 +117,7 @@ dependencies = [
     { name = "langfuse" },
     { name = "psycopg", extra = ["binary"] },
     { name = "python-dotenv" },
+    { name = "requests" },
 ]
 
 [package.optional-dependencies]
@@ -135,6 +136,7 @@ requires-dist = [
     { name = "psycopg", extras = ["binary"], specifier = ">=3.1.0" },
     { name = "pytest", marker = "extra == 'dev'" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
+    { name = "requests", specifier = ">=2.31.0" },
 ]
 provides-extras = ["dev"]
 
